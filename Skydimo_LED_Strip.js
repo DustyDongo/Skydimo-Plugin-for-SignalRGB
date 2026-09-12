@@ -1,12 +1,16 @@
 import serial from "@SignalRGB/serial";
-export function Name() { return "Skydimo LED Strip"; }
+
+export function Name() { return "Skydimo SK0L27"; }
 export function VendorId() { return 0x1A86; }
 export function ProductId() { return [0x7523]; }
-export function Publisher() { return "I'm Not MentaL"; }
+export function Publisher() { return "DustyDongo"; }
 export function Documentation() { return "troubleshooting/skydimo"; }
 export function Type() { return "serial"; }
 export function DeviceType() { return "lightingcontroller"; }
 export function SubdeviceController() { return true; }
+export function Size() { return [96, 1]; }
+export function ImageUrl() { return "https://assets.signalrgb.com/devices/brands/skydimo/misc/skydimo-strip.png"; }
+
 /* global
 shutdownColor:readonly
 LightingMode:readonly
@@ -14,312 +18,164 @@ forcedColor:readonly
 */
 export function ControllableParameters() {
     return [
-        { property: "shutdownColor", group: "lighting", label: "Shutdown Color", description: "This color is applied to the device when the System, or SignalRGB is shutting down", min: "0", max: "360", type: "color", default: "#000000" },
-        { property: "LightingMode", group: "lighting", label: "Lighting Mode", description: "Determines where the device's RGB comes from. Canvas will pull from the active Effect, while Forced will override it to a specific color", type: "combobox", values: ["Canvas", "Forced"], default: "Canvas" },
-        { property: "forcedColor", group: "lighting", label: "Forced Color", description: "The color used when 'Forced' Lighting Mode is enabled", min: "0", max: "360", type: "color", default: "#009bde" },
+        { property: "shutdownColor", group: "lighting", label: "Shutdown Color", description: "Color used when SignalRGB or Windows shuts down", min: "0", max: "360", type: "color", default: "#000000" },
+        { property: "LightingMode", group: "lighting", label: "Lighting Mode", description: "Use the SignalRGB canvas or a fixed color", type: "combobox", values: ["Canvas", "Forced"], default: "Canvas" },
+        { property: "forcedColor", group: "lighting", label: "Forced Color", description: "Color used in Forced mode", min: "0", max: "360", type: "color", default: "#009bde" },
     ];
 }
 
-let skydimoPortName = null;
-let skydimoModel = null;
-let skydimoInfoRead = false;
+const SERIAL_OPTIONS = {
+    baudRate: 115200,
+    parity: "None",
+    dataBits: 8,
+    stopBits: "One",
+};
+const DEVICE_IMAGE = "https://assets.signalrgb.com/devices/brands/skydimo/misc/skydimo-strip.png";
+const MODEL_QUERY = [0x4D, 0x6F, 0x6E, 0x69, 0x2D, 0x41];
+const ZONE_LED_COUNTS = [17, 31, 17, 31];
+const LED_COUNT = 96;
+const RECONNECT_INTERVAL_MS = 2000;
 
-const deviceConfig = {
-    // 2-zone models
-    "SK0201": { layout: 2, zones: [20, 20], total: 40, image: "SK02" },
-    "SK0202": { layout: 2, zones: [30, 30], total: 60, image: "SK02" },
-    "SK0204": { layout: 2, zones: [25, 25], total: 50, image: "SK02" },
-    "SK0F01": { layout: 2, zones: [29, 29], total: 58, image: "SK0F" },
-    "SK0F02": { layout: 2, zones: [25, 25], total: 50, image: "SK0F" },
+let layoutCreated = false;
+let lastReconnectAttempt = 0;
 
-    // 3-zone models
-    "SK0121": { layout: 3, zones: [13, 25, 13], total: 51, image: "SK01" },
-    "SK0124": { layout: 3, zones: [14, 26, 14], total: 54, image: "SK01" },
-    "SK0127": { layout: 3, zones: [17, 31, 17], total: 65, image: "SK01" },
-    "SK0132": { layout: 3, zones: [20, 37, 20], total: 77, image: "SK01" },
-    "SK0134": { layout: 3, zones: [15, 41, 15], total: 71, image: "SK01" },
-    "SK0149": { layout: 3, zones: [19, 69, 19], total: 107, image: "SK01" },
-
-    // 4-zone models
-    "SK0L21": { layout: 4, zones: [13, 25, 13, 25], total: 76, image: "SK0L" },
-    "SK0L24": { layout: 4, zones: [14, 26, 14, 26], total: 80, image: "SK0L" },
-    "SK0L27": { layout: 4, zones: [17, 31, 17, 31], total: 96, image: "SK0L" },
-    "SK0L32": { layout: 4, zones: [20, 37, 20, 37], total: 114, image: "SK0L" },
-    "SK0L34": { layout: 4, zones: [15, 41, 15, 41], total: 112, image: "SK0L" },
-
-    // SKA series
-    "SKA124": { layout: 3, zones: [18, 34, 18], total: 70, image: "SKA1" },
-    "SKA127": { layout: 3, zones: [20, 41, 20], total: 81, image: "SKA1" },
-    "SKA132": { layout: 3, zones: [25, 45, 25], total: 95, image: "SKA1" },
-    "SKA134": { layout: 3, zones: [21, 51, 21], total: 93, image: "SKA1" },
-
-    // Single-zone LED strip models
-    "SK0402": { layout: 1, zones: [72], total: 72, image: "SK04" },
-    "SK0403": { layout: 1, zones: [96], total: 96, image: "SK04" },
-    "SK0404": { layout: 1, zones: [144], total: 144, image: "SK04" },
-    "SK0901": { layout: 1, zones: [14], total: 14, image: "SK09" },
-    "SK0801": { layout: 1, zones: [2], total: 2, image: "SK08" },
-    "SK0803": { layout: 1, zones: [10], total: 10, image: "SK08" },
-    "SK0E01": { layout: 1, zones: [16], total: 16, image: "SK0E" },
-    "SK0H01": { layout: 1, zones: [2], total: 2, image: "SK0H" },
-    "SK0H02": { layout: 1, zones: [4], total: 4, image: "SK0H" },
-    "SK0S01": { layout: 1, zones: [32], total: 32, image: "SK0J" }, // Image is placeholder
-    "SK0J01": { layout: 1, zones: [120], total: 120, image: "SK0J01" },
-    "SK0K01": { layout: 1, zones: [120], total: 120, image: "SK0J" }, // Image is placeholder
-    "SK0K02": { layout: 1, zones: [15], total: 15, image: "SK0J" }, // Image is placeholder
-    "SK0M01": { layout: 1, zones: [24], total: 24, image: "SK0M" },
-    "SK0N01": { layout: 1, zones: [256], total: 256, image: "SK0J" }, // Image is placeholder
-    "SK0N02": { layout: 1, zones: [1024], total: 1024, image: "SK0J" }, // Image is placeholder
-    "SK0N03": { layout: 1, zones: [253], total: 253, image: "SK0N03" }
-}
-
-export function ImageUrl() {
-    if (skydimoModel && deviceConfig[skydimoModel]) {
-        return getDeviceImage(deviceConfig[skydimoModel].image);
-    } else {
-        return "https://dev-dl.skydimo.com/assets/device/SK0J.jpg";
-    }
-}
-
-// init serial connection
 export function Initialize() {
-    const ports = serial.availablePorts();
-    if (!ports.length) {
-        console.log("No serial ports detected.");
-        return;
-    }
-
-    skydimoPortName = ports.find(p =>
-        p.vendorId === 0x1A86 && p.productId === 0x7523
-    )?.portName;
-
-    if (!skydimoPortName) {
-        console.log("Skydimo device not found.");
-        return;
-    }
-
-    // attempt to connect to Skydimo
-    connectToSkydimo();
+    setupLayout();
+    connect();
 }
 
-// renders colors
 export function Render() {
-    // automatic reconnect if disconnected
     if (!serial.isConnected()) {
-        console.log("Serial port not connected, attempting reconnect...");
-        connectToSkydimo();
+        const now = Date.now();
+        if (now - lastReconnectAttempt >= RECONNECT_INTERVAL_MS) {
+            lastReconnectAttempt = now;
+            connect();
+        }
+        return;
     }
 
     sendColors();
 }
 
-// shut down colors
 export function Shutdown(SystemSuspending) {
-    if (!skydimoPortName) return;
+    if (!serial.isConnected()) return;
 
-    const color = SystemSuspending ? "#000000" : shutdownColor;
-    sendColors(color);
-
-    disconnect();
+    sendColors(SystemSuspending ? "#000000" : shutdownColor);
+    serial.disconnect();
 }
 
-function connectToSkydimo() {
-    if (!skydimoPortName) return false;
+function setupLayout() {
+    if (layoutCreated) return;
 
+    device.setName("Skydimo SK0L27");
+    device.setImageFromUrl(DEVICE_IMAGE);
+    device.setSize([LED_COUNT, 1]);
+    device.setFrameRateTarget(60);
+    device.SetLedLimit(LED_COUNT);
+    device.SetIsSubdeviceController(true);
+
+    let ledOffset = 0;
+    for (let zoneIndex = 0; zoneIndex < ZONE_LED_COUNTS.length; zoneIndex++) {
+        const channel = `CH${zoneIndex + 1}`;
+        const zoneLedCount = ZONE_LED_COUNTS[zoneIndex];
+
+        device.createSubdevice(channel);
+        device.setSubdeviceName(channel, `Segment ${zoneIndex + 1}`);
+        device.setSubdeviceSize(channel, zoneLedCount, 1);
+        device.setSubdeviceLeds(
+            channel,
+            createLedNames(zoneLedCount, ledOffset),
+            createLedPositions(zoneLedCount)
+        );
+        device.setSubdeviceImageUrl(channel, DEVICE_IMAGE);
+
+        ledOffset += zoneLedCount;
+    }
+
+    layoutCreated = true;
+    device.log("SK0L27 layout initialized: CH1-CH4, 96 LEDs.");
+}
+
+function connect() {
     if (serial.isConnected()) return true;
 
-    const connected = serial.connect({
-        portName: skydimoPortName,
-        baudRate: 115200,
-        parity: "None",
-        dataBits: 8,
-        stopBits: "One"
-    });
+    serial.disconnect();
+    serial.connect(SERIAL_OPTIONS);
 
-    if (!connected) {
-        console.log("Failed to connect to Skydimo.");
+    if (!serial.isConnected()) {
+        device.log("SK0L27 serial connection is not available; retrying in the background.");
         return false;
     }
 
-    console.log("Connected to Skydimo on port", skydimoPortName);
-    const info = serial.getDeviceInfo(skydimoPortName);
-    console.log("Device Info:", info);
-
-    skydimoInfoRead = getDeviceInfo();
-
+    // Keep the controller's original initialization sequence, but do not make
+    // layout creation depend on a model-query response.
+    serial.write(MODEL_QUERY);
+    device.log(`SK0L27 connected on ${getPortName()}.`);
     return true;
 }
 
-function disconnect() {
-    if (serial.isConnected()) {
-        serial.disconnect();
-        console.log("Disconnected from serial port");
-    }
+function getPortName() {
+    if (typeof serial.getPortName !== "function") return "the assigned COM port";
+    return serial.getPortName() || "the assigned COM port";
 }
 
-// grabs colors and sends
 function sendColors(overrideColor) {
-    if (!skydimoPortName) return;
-    if (!serial.isConnected()) {
-        console.warn("Serial port not connected, skipping color write");
-        return;
+    if (!serial.isConnected()) return;
+
+    const rgbData = [];
+
+    for (let zoneIndex = 0; zoneIndex < ZONE_LED_COUNTS.length; zoneIndex++) {
+        const zoneLedCount = ZONE_LED_COUNTS[zoneIndex];
+
+        for (let ledIndex = 0; ledIndex < zoneLedCount; ledIndex++) {
+            let color;
+
+            if (overrideColor) {
+                color = hexToRgb(overrideColor);
+            } else if (LightingMode === "Forced") {
+                color = hexToRgb(forcedColor);
+            } else {
+                color = device.subdeviceColor(`CH${zoneIndex + 1}`, ledIndex, 0);
+            }
+
+            rgbData.push(color[0], color[1], color[2]);
+        }
     }
-    if (!skydimoInfoRead) return;
 
-    const RGBData = [];
-    const config = deviceConfig[skydimoModel];
-    const count = config.total - 1;
+    const lastLedIndex = LED_COUNT - 1;
+    const packet = [
+        0x41, 0x64, 0x61, 0x00,
+        (lastLedIndex >> 8) & 0xFF,
+        lastLedIndex & 0xFF,
+        ...rgbData,
+    ];
 
-    // Get colors from each segments.
-    for (let i = 0; i < config.layout; i++) {
-        RGBData.push(getZoneColors(i + 1, config.zones[i], overrideColor));
-    }
-    // Convert RGB array of arrays to one single flat array.
-    const MergedRGBData = [].concat.apply([], RGBData);
-
-    // Build Adalight header: "Ada" + 0x00 + count (2 bytes)
-    const header = [0x41, 0x64, 0x61, 0x00, (count >> 8) & 0xFF, count & 0xFF];
-    const packet = [...header, ...MergedRGBData];
-    const success = serial.write(packet);
-
-    if (!success) console.error("Failed to write LED colors");
+    serial.write(packet);
 }
 
-// Convert hex string to RGB array.
 function hexToRgb(hex) {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!match) return [0, 0, 0];
+
     return [
-        parseInt(result[1], 16),
-        parseInt(result[2], 16),
-        parseInt(result[3], 16)
+        parseInt(match[1], 16),
+        parseInt(match[2], 16),
+        parseInt(match[3], 16),
     ];
 }
 
-// Skydimo's unconventional method of getting device model and serial no.
-function getDeviceInfo() {
-    if (!skydimoPortName || !serial.isConnected()) {
-        return false;
-    }
-
-    // Send query command "Moni-A"
-    const cmd = "Moni-A";
-    const bytes = Array.from(cmd).map(c => c.charCodeAt(0));
-    serial.write(bytes);
-
-    // Wait briefly for response (1000ms)
-    device.pause(1000);
-
-    // Read response (up to 64 bytes)
-    const buf = serial.read(64, 1000);
-    if (!buf || buf.length === 0) {
-        console.log("No response from Skydimo device.");
-        return false;
-    }
-
-    // Convert byte array to string
-    const response = String.fromCharCode(...buf);
-    device.log("Raw response:", response);
-
-    // Parse "Model,Serial"
-    const commaPos = response.indexOf(",");
-    if (commaPos !== -1) {
-        const model = response.substring(0, commaPos).trim();
-        const serialRaw = response.substring(commaPos + 1).trim();
-        let device_name = 'Skydimo';
-        let device_serial = '000000';
-
-        if (model) {
-            device_name = "Skydimo " + model;
-            skydimoModel = model;
-
-            const devConfig = deviceConfig[model];
-            if (!devConfig) {
-                device.log(`No configuration found for model: ${model}, please contact SignalRGB support.`);
-            } else {
-                device.setName(device_name);
-                buildSubdeviceFromConfig(devConfig);
-                device.setImageFromUrl(getDeviceImage(devConfig.image));
-                device.setFrameRateTarget(60);
-                device.log("Device Name:", device_name);
-            }
-        }
-
-        if (serialRaw) {
-            // Convert serial to hex string
-            device_serial = Array.from(serialRaw)
-                .map(ch => ch.charCodeAt(0).toString(16).padStart(2, "0").toUpperCase())
-                .join("");
-            device.log("Device Serial:", device_serial);
-        }
-
-        return true;
-    }
-
-    return false;
-}
-
-// Get Zone (Segment) colors.
-function getZoneColors(zone, count, overrideColor) {
-    const RGBData = [];
-    const positions = generateLedPositions(count);
-
-    for (let i = 0; i < positions.length; i++) {
-        const [x, y] = positions[i];
-        let color;
-
-        if (overrideColor) {
-            color = hexToRgb(shutdownColor);
-        } else if (LightingMode === "Forced") {
-            color = hexToRgb(forcedColor)
-        } else {
-            color = device.subdeviceColor(`CH${zone}`, x, y);
-        }
-
-        RGBData.push(color[0]); // R
-        RGBData.push(color[1]); // G
-        RGBData.push(color[2]); // B
-    }
-
-    return RGBData;
-}
-
-function getDeviceImage(image) {
-    return `https://dev-dl.skydimo.com/assets/device/${image}.jpg`;
-}
-
-function buildSubdeviceFromConfig(config) {
-    const zones = config.zones || [];
-    const layout = config.layout || 1;
-
-    let offset = 0;
-    for (let i = 0; i < layout; i++) {
-        const zoneSize = zones[i] || 0;
-        const channel = `CH${i + 1}`;
-        const name = layout === 1 ? "Device" : `Segment ${i + 1}`;
-
-        device.createSubdevice(channel);
-        device.setSubdeviceName(channel, name);
-        device.setSubdeviceSize(channel, zoneSize, 1);
-        device.setSubdeviceLeds(channel, generateLedNames(zoneSize, offset), generateLedPositions(zoneSize));
-        device.setSubdeviceImageUrl(channel, getDeviceImage(config.image));
-
-        offset += zoneSize;
-    }
-}
-
-function generateLedNames(count, start = 1) {
+function createLedNames(count, offset) {
     const names = [];
-
-    for (let i = start; i <= count; i++) {
-        names.push(`LED ${i}`);
+    for (let index = 0; index < count; index++) {
+        names.push(`LED ${offset + index + 1}`);
     }
     return names;
 }
 
-function generateLedPositions(count) {
+function createLedPositions(count) {
     const positions = [];
-    for (let i = 0; i < count; i++) {
-        positions.push([i, 0]);
+    for (let index = 0; index < count; index++) {
+        positions.push([index, 0]);
     }
     return positions;
 }
