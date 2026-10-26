@@ -30,6 +30,7 @@ The repository intentionally contains only one JavaScript device plugin. SignalR
 - Dedicated configuration for SK0L27; model detection is not required.
 - Creates CH1-CH4 immediately, before serial connection retries.
 - Uses the COM port already assigned to the plugin by current SignalRGB versions.
+- Limits output to 30 FPS so 96-LED frames stay below the 115200-baud link capacity.
 - Reconnect attempts are rate-limited so a missing or busy port cannot freeze SignalRGB.
 - Detects failed color writes and automatically reopens a stalled COM port instead of requiring a USB replug.
 - Correct 96-LED Adalight packet and shutdown-color handling.

@@ -34,6 +34,9 @@ const DEVICE_IMAGE = "https://assets.signalrgb.com/devices/brands/skydimo/misc/s
 const MODEL_QUERY = [0x4D, 0x6F, 0x6E, 0x69, 0x2D, 0x41];
 const ZONE_LED_COUNTS = [17, 31, 17, 31];
 const LED_COUNT = 96;
+// A 294-byte 8-N-1 frame at 60 FPS needs 176400 baud. Keep enough headroom
+// for the controller's 115200-baud link so its transmit buffer cannot grow.
+const FRAME_RATE = 30;
 const RECONNECT_INTERVAL_MS = 2000;
 const MAX_CONSECUTIVE_WRITE_FAILURES = 3;
 
@@ -72,7 +75,7 @@ function setupLayout() {
     device.setName("Skydimo SK0L27");
     device.setImageFromUrl(DEVICE_IMAGE);
     device.setSize([LED_COUNT, 1]);
-    device.setFrameRateTarget(60);
+    device.setFrameRateTarget(FRAME_RATE);
     device.SetLedLimit(LED_COUNT);
     device.SetIsSubdeviceController(true);
 
