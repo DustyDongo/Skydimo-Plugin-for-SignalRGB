@@ -31,12 +31,13 @@ The repository intentionally contains only one JavaScript device plugin. SignalR
 - Creates CH1-CH4 immediately, before serial connection retries.
 - Uses the COM port already assigned to the plugin by current SignalRGB versions.
 - Reconnect attempts are rate-limited so a missing or busy port cannot freeze SignalRGB.
+- Detects failed color writes and automatically reopens a stalled COM port instead of requiring a USB replug.
 - Correct 96-LED Adalight packet and shutdown-color handling.
 - Correct LED naming for all four segments.
 - Removed SK0902 and WLED text JavaScript files that were being scanned as device plugins and could crash plugin discovery.
 
 ## Compatibility
 
-Test target: SignalRGB 2.5.74 on Windows with SK0L27.
+Test targets: SignalRGB 2.5.74 and 2.5.80 on Windows with SK0L27.
 
 SignalRGB officially supports persistent custom plugins overriding built-in plugins, but future application versions may change the plugin API. If that happens, update this repository rather than copying helper JavaScript files into the addon.

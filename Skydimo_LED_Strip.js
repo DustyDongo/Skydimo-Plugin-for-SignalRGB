@@ -35,9 +35,11 @@ const MODEL_QUERY = [0x4D, 0x6F, 0x6E, 0x69, 0x2D, 0x41];
 const ZONE_LED_COUNTS = [17, 31, 17, 31];
 const LED_COUNT = 96;
 const RECONNECT_INTERVAL_MS = 2000;
+const MAX_CONSECUTIVE_WRITE_FAILURES = 3;
 
 let layoutCreated = false;
 let lastReconnectAttempt = 0;
+let consecutiveWriteFailures = 0;
 
 export function Initialize() {
     setupLayout();
@@ -100,12 +102,14 @@ function connect() {
     if (serial.isConnected()) return true;
 
     serial.disconnect();
-    serial.connect(SERIAL_OPTIONS);
+    const connected = serial.connect(SERIAL_OPTIONS);
 
-    if (!serial.isConnected()) {
+    if (!connected || !serial.isConnected()) {
         device.log("SK0L27 serial connection is not available; retrying in the background.");
         return false;
     }
+
+    consecutiveWriteFailures = 0;
 
     // Keep the controller's original initialization sequence, but do not make
     // layout creation depend on a model-query response.
@@ -120,7 +124,7 @@ function getPortName() {
 }
 
 function sendColors(overrideColor) {
-    if (!serial.isConnected()) return;
+    if (!serial.isConnected()) return false;
 
     const rgbData = [];
 
@@ -150,7 +154,26 @@ function sendColors(overrideColor) {
         ...rgbData,
     ];
 
-    serial.write(packet);
+    const success = serial.write(packet);
+
+    if (success) {
+        consecutiveWriteFailures = 0;
+        return true;
+    }
+
+    consecutiveWriteFailures++;
+    if (consecutiveWriteFailures >= MAX_CONSECUTIVE_WRITE_FAILURES) {
+        recoverSerialConnection();
+    }
+
+    return false;
+}
+
+function recoverSerialConnection() {
+    device.log("SK0L27 stopped accepting color frames; reopening the serial port.");
+    serial.disconnect();
+    consecutiveWriteFailures = 0;
+    lastReconnectAttempt = Date.now();
 }
 
 function hexToRgb(hex) {
