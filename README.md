@@ -18,8 +18,8 @@ SignalRGB device plugin for the four-zone, 27-inch Skydimo SK0L27 monitor light 
 
 ## Installation
 
-1. Close SignalRGB completely.
-2. Click **Add to SignalRGB** above and allow the addon installation.
+1. Close SignalRGB completely_
+2. Click **Add to SignalRGB** above and allow the addon installation_
 3. Start SignalRGB and wait until plugin scanning finishes.
 4. If the controller was already connected and appears first as generic `LED Strip`, reconnect its USB cable once. This is a SignalRGB 2.5.74 device-discovery ordering issue; no file patch is required.
 
